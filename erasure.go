@@ -16,7 +16,7 @@ import (
 // implementation.
 type Code interface {
 	// Encode accepts a byte slice and returns a slice of sharded data.
-	Encode([]byte) [][]byte
+	Encode([]byte) ([][]byte, error)
 
 	// Decode accepts a slice of (possibly nil) shards and returns the original
 	// byte slice.
@@ -73,7 +73,10 @@ func (w *Writer) Readers() []io.Reader {
 }
 
 func (w *Writer) send() error {
-	parts := w.c.Encode(w.buf.Bytes())
+	parts, err := w.c.Encode(w.buf.Bytes())
+	if err != nil {
+		return err
+	}
 	for i := range parts {
 		if err := w.encs[i].Encode(frame{
 			SHA1:       sha1.Sum(parts[i]),

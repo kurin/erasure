@@ -5,7 +5,7 @@ package null
 // shards.  Code provides no redundancy.
 type Code int
 
-func (n Code) Encode(p []byte) [][]byte {
+func (n Code) Encode(p []byte) ([][]byte, error) {
 	var bs [][]byte
 	size := (len(p) + int(n-1)) / int(n)
 	for i := 0; i < int(n); i++ {
@@ -15,7 +15,7 @@ func (n Code) Encode(p []byte) [][]byte {
 			bs = append(bs, make([]byte, size))
 		}
 	}
-	return bs
+	return bs, nil
 }
 
 func (n Code) Decode(ps [][]byte) ([]byte, error) {
