@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/kurin/erasure/null"
+	"github.com/kurin/erasure/reedsolomon"
 )
 
 type random struct{}
@@ -22,12 +23,20 @@ func (r random) Read(p []byte) (int, error) {
 }
 
 func TestReadWrite(t *testing.T) {
+	rsCode, err := reedsolomon.New(17, 3)
+	if err != nil {
+		t.Fatal(err)
+	}
 	table := []struct {
 		c Code
 		l int64
 	}{
 		{
 			c: null.Code(10),
+			l: 1e8,
+		},
+		{
+			c: rsCode,
 			l: 1e8,
 		},
 	}
@@ -43,10 +52,10 @@ func TestReadWrite(t *testing.T) {
 		wg.Add(1)
 		shaGot := sha1.New()
 		go func() {
+			defer wg.Done()
 			if _, err := io.Copy(shaGot, rr); err != nil {
 				t.Fatal(err)
 			}
-			wg.Done()
 		}()
 		if _, err := io.Copy(w, r); err != nil {
 			t.Fatal(err)
