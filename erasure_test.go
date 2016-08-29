@@ -1,53 +1,65 @@
 package erasure
 
 import (
+	"crypto/sha1"
+	"fmt"
 	"io"
-	"io/ioutil"
+	"sync"
 	"testing"
+
+	"github.com/kurin/erasure/null"
 )
-
-type null int
-
-func (n null) Encode(p []byte) [][]byte {
-	var bs [][]byte
-	size := len(p) / int(n)
-	for i := 0; i < int(n); i++ {
-		bs = append(bs, p[i*size:(i+1)*size])
-	}
-	return bs
-}
-
-func (n null) Decode(ps [][]byte) []byte {
-	var p []byte
-	for i := range ps {
-		p = append(p, ps[i]...)
-	}
-	return p
-}
-
-func (n null) Shards() int {
-	return int(n)
-}
 
 type random struct{}
 
 func (r random) Read(p []byte) (int, error) {
-	var n int
-	for n < len(p) {
-		n += copy(p, []byte{0x01, 0x10, 0xff, 0x00, 0xa0, 0x0a})
+	n := len(p)
+	for len(p) > 0 {
+		k := copy(p, []byte{0x01, 0x10, 0xff, 0x00, 0xa0, 0x0a})
+		p = p[k:]
 	}
-	return len(p), nil
+	return n, nil
 }
 
-func TestWriter(t *testing.T) {
-	k := null(5)
-	r := io.LimitReader(random{}, 1e8)
-	w := NewWriter(k)
-	rs := w.Readers()
-	for i := range rs {
-		go io.Copy(ioutil.Discard, rs[i])
+func TestReadWrite(t *testing.T) {
+	table := []struct {
+		c Code
+		l int64
+	}{
+		{
+			c: null.Code(10),
+			l: 1e8,
+		},
 	}
-	if _, err := io.Copy(w, r); err != nil {
-		t.Fatal(err)
+
+	for i, ent := range table {
+		l := io.LimitReader(random{}, ent.l)
+		shaWant := sha1.New()
+		r := io.TeeReader(l, shaWant)
+		w := NewWriter(ent.c)
+		rs := w.Readers()
+		rr := NewReader(ent.c, rs...)
+		wg := &sync.WaitGroup{}
+		wg.Add(1)
+		shaGot := sha1.New()
+		go func() {
+			if _, err := io.Copy(shaGot, rr); err != nil {
+				t.Fatal(err)
+			}
+			wg.Done()
+		}()
+		if _, err := io.Copy(w, r); err != nil {
+			t.Fatal(err)
+		}
+		if err := w.Close(); err != nil {
+			t.Fatal(err)
+		}
+		wg.Wait()
+
+		want := fmt.Sprintf("%x", shaWant.Sum(nil))
+		got := fmt.Sprintf("%x", shaGot.Sum(nil))
+		if got != want {
+			t.Fatalf("%d: bad hash, got %q, want %q", i, got, want)
+		}
 	}
 }
