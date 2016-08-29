@@ -173,6 +173,9 @@ func (r *Reader) pull() error {
 		bs[f.Member] = f.Data
 		size = f.Size
 	}
+	if size == 0 {
+		return nil
+	}
 	data, err := r.c.Decode(bs)
 	if err != nil {
 		return err
