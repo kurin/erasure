@@ -36,6 +36,10 @@ func TestReadWrite(t *testing.T) {
 			l: 1e8,
 		},
 		{
+			c: null.Code(10),
+			l: 31,
+		},
+		{
 			c: rsCode,
 			l: 1e8,
 		},

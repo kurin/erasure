@@ -9,7 +9,7 @@ func (n Code) Encode(p []byte) ([][]byte, error) {
 	var bs [][]byte
 	size := (len(p) + int(n-1)) / int(n)
 	for i := 0; i < int(n); i++ {
-		if len(p) >= (i+1)*size {
+		if len(p) >= i*size {
 			bs = append(bs, p[i*size:(i+1)*size])
 		} else {
 			bs = append(bs, make([]byte, size))
