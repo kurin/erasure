@@ -1,8 +1,11 @@
 package erasure
 
 import (
+	"bytes"
 	"crypto/sha1"
+	"encoding/gob"
 	"fmt"
+	"hash"
 	"io"
 	"sync"
 	"testing"
@@ -45,10 +48,8 @@ func TestReadWrite(t *testing.T) {
 		},
 	}
 
-	for i, ent := range table {
-		l := io.LimitReader(random{}, ent.l)
-		shaWant := sha1.New()
-		r := io.TeeReader(l, shaWant)
+	for _, ent := range table {
+		r, shaWant := shaReader(ent.l)
 		w := NewWriter(ent.c)
 		rs := w.Readers()
 		rr := NewReader(ent.c, rs...)
@@ -72,7 +73,120 @@ func TestReadWrite(t *testing.T) {
 		want := fmt.Sprintf("%x", shaWant.Sum(nil))
 		got := fmt.Sprintf("%x", shaGot.Sum(nil))
 		if got != want {
-			t.Fatalf("%d: bad hash, got %q, want %q", i, got, want)
+			t.Fatalf("bad hash, got %q, want %q", got, want)
 		}
 	}
+}
+
+func TestReedSolomon(t *testing.T) {
+	table := []struct {
+		data, parity int
+		size         int64
+		kill         []int
+		corrupt      []int
+	}{
+		{
+			size:   1e5,
+			data:   17,
+			parity: 3,
+		},
+		{
+			size:   82,
+			data:   1,
+			parity: 2,
+			kill:   []int{0, 2},
+		},
+		{
+			size:    99,
+			data:    1,
+			parity:  1,
+			corrupt: []int{0},
+		},
+	}
+
+	for _, ent := range table {
+		r, shaWant := shaReader(ent.size)
+		code, err := reedsolomon.New(ent.data, ent.parity)
+		if err != nil {
+			t.Error(err)
+			continue
+		}
+		w := NewWriter(code)
+		rs := w.Readers()
+		rbufs := make([]*bytes.Buffer, len(rs))
+		wg := &sync.WaitGroup{}
+		for i := range rs {
+			rbufs[i] = &bytes.Buffer{}
+			wg.Add(1)
+			go func(i int) {
+				defer wg.Done()
+				if _, err := io.Copy(rbufs[i], rs[i]); err != nil {
+					t.Errorf("io.Copy %d: %v", i, err)
+				}
+			}(i)
+		}
+		if _, err := io.Copy(w, r); err != nil {
+			t.Error(err)
+			continue
+		}
+		if err := w.Close(); err != nil {
+			t.Error(err)
+			continue
+		}
+		wg.Wait()
+
+		for _, b := range ent.kill {
+			rbufs[b] = nil
+		}
+		var nrbufs []io.Reader
+		for _, buf := range rbufs {
+			if buf != nil {
+				nrbufs = append(nrbufs, buf)
+			}
+		}
+
+		for _, c := range ent.corrupt {
+			nrbufs[c] = &corruptReader{r: nrbufs[c]}
+		}
+
+		rr := NewReader(code, nrbufs...)
+		shaGot := sha1.New()
+		if _, err := io.Copy(shaGot, rr); err != nil {
+			t.Error(err)
+			continue
+		}
+		want := fmt.Sprintf("%x", shaWant.Sum(nil))
+		got := fmt.Sprintf("%x", shaGot.Sum(nil))
+		if got != want {
+			t.Errorf("bad hash, got %q, want %q", got, want)
+		}
+	}
+}
+
+func shaReader(size int64) (io.Reader, hash.Hash) {
+	l := io.LimitReader(random{}, size)
+	sha := sha1.New()
+	r := io.TeeReader(l, sha)
+	return r, sha
+}
+
+type corruptReader struct {
+	r   io.Reader
+	buf bytes.Buffer
+}
+
+func (cr *corruptReader) Read(p []byte) (int, error) {
+	if cr.buf.Len() == 0 {
+		var f frame
+		if err := gob.NewDecoder(cr.r).Decode(&f); err != nil {
+			return 0, err
+		}
+		if len(f.Data) > 0 {
+			f.Data[0] = f.Data[0] + 0x01
+		}
+		if err := gob.NewEncoder(&cr.buf).Encode(f); err != nil {
+			return 0, err
+		}
+	}
+	return cr.buf.Read(p)
 }
