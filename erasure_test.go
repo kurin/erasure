@@ -102,6 +102,13 @@ func TestReedSolomon(t *testing.T) {
 			parity:  1,
 			corrupt: []int{0},
 		},
+		{
+			size:    1e8,
+			data:    17,
+			parity:  3,
+			kill:    []int{10},
+			corrupt: []int{17, 18},
+		},
 	}
 
 	for _, ent := range table {
@@ -171,20 +178,27 @@ func shaReader(size int64) (io.Reader, hash.Hash) {
 }
 
 type corruptReader struct {
-	r   io.Reader
-	buf bytes.Buffer
+	r    io.Reader
+	buf  bytes.Buffer
+	gr   *gob.Decoder
+	gw   *gob.Encoder
+	once sync.Once
 }
 
 func (cr *corruptReader) Read(p []byte) (int, error) {
+	cr.once.Do(func() {
+		cr.gr = gob.NewDecoder(cr.r)
+		cr.gw = gob.NewEncoder(&cr.buf)
+	})
 	if cr.buf.Len() == 0 {
 		var f frame
-		if err := gob.NewDecoder(cr.r).Decode(&f); err != nil {
+		if err := cr.gr.Decode(&f); err != nil {
 			return 0, err
 		}
 		if len(f.Data) > 0 {
 			f.Data[0] = f.Data[0] + 0x01
 		}
-		if err := gob.NewEncoder(&cr.buf).Encode(f); err != nil {
+		if err := cr.gw.Encode(f); err != nil {
 			return 0, err
 		}
 	}
