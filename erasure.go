@@ -29,6 +29,10 @@ type Code interface {
 
 // Writer implements the io.Writer interface.
 type Writer struct {
+	// ChunkSize is the number of bytes that will be used for each parity
+	// calculation.  If this is less than 1, 1e7 (~10MB) is used.
+	ChunkSize int
+
 	c    Code
 	gen  int
 	rs   []io.Reader
@@ -101,10 +105,11 @@ func (w *Writer) Close() error {
 	return err
 }
 
-var ChunkSize int = 1e7
-
 func (w *Writer) Write(p []byte) (int, error) {
-	r := ChunkSize - w.buf.Len()
+	if w.ChunkSize <= 0 {
+		w.ChunkSize = 1e7
+	}
+	r := w.ChunkSize - w.buf.Len()
 	var n int
 	if r < len(p) {
 		n, _ = w.buf.Write(p[:r])
