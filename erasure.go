@@ -169,7 +169,14 @@ func (r *Reader) pull() error {
 	sort.Sort(byMember(frames))
 	bs := make([][]byte, r.c.Shards())
 	var size int
+Frames:
 	for _, f := range frames {
+		sh := sha1.Sum(f.Data)
+		for i := range sh {
+			if sh[i] != f.SHA1[i] {
+				continue Frames
+			}
+		}
 		bs[f.Member] = f.Data
 		size = f.Size
 	}
