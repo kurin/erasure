@@ -229,6 +229,16 @@ func BenchmarkReedSolomonDeltaRS(b *testing.B) {
 	}
 }
 
+func BenchmarkReedSolomonDeltaKill(b *testing.B) {
+	d := 10
+	p := 5
+	var c int = 1e7
+	var s int64 = 1e8
+	for _, k := range [][]int{nil, []int{10}, []int{0}, []int{0, 1}, []int{0, 1, 2, 3, 4}} {
+		b.Run(fmt.Sprintf("d:%d,p:%d,c:%d,s:%d,k:%v", d, p, c, s, k), mkRSbench(d, p, c, s, k))
+	}
+}
+
 func shaReader(size int64) (io.Reader, hash.Hash) {
 	l := io.LimitReader(random{}, size)
 	sha := sha1.New()
