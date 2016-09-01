@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"hash"
 	"io"
+	"io/ioutil"
 	"sync"
 	"testing"
 
@@ -166,6 +167,64 @@ func TestReedSolomon(t *testing.T) {
 		got := fmt.Sprintf("%x", shaGot.Sum(nil))
 		if got != want {
 			t.Errorf("bad hash, got %q, want %q", got, want)
+		}
+	}
+}
+
+func mkRSbench(data, parity, chunk int, size int64, kill []int) func(*testing.B) {
+	return func(b *testing.B) {
+		code, err := reedsolomon.New(data, parity)
+		if err != nil {
+			b.Fatal(err)
+		}
+		w := NewWriter(code)
+		w.ChunkSize = chunk
+		rs := w.Readers()
+		rbufs := make([]*bytes.Buffer, len(rs))
+		wg := &sync.WaitGroup{}
+		r := io.LimitReader(random{}, size)
+		for i := range rs {
+			rbufs[i] = &bytes.Buffer{}
+			wg.Add(1)
+			go func(i int) {
+				defer wg.Done()
+				if _, err := io.Copy(rbufs[i], rs[i]); err != nil {
+					b.Errorf("io.Copy %d: %v", i, err)
+				}
+			}(i)
+		}
+		if _, err := io.Copy(w, r); err != nil {
+			b.Fatal(err)
+		}
+		if err := w.Close(); err != nil {
+			b.Fatal(err)
+		}
+		wg.Wait()
+
+		for _, k := range kill {
+			rbufs[k] = nil
+		}
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			var nrbufs []io.Reader
+			for _, buf := range rbufs {
+				if buf != nil {
+					nrbufs = append(nrbufs, bytes.NewBuffer(buf.Bytes()))
+				}
+			}
+
+			rr := NewReader(code, nrbufs...)
+			if _, err := io.Copy(ioutil.Discard, rr); err != nil {
+				b.Fatal(err)
+			}
+		}
+	}
+}
+
+func BenchmarkReedSolomonDeltaRS(b *testing.B) {
+	for d := 1; d < 10; d++ {
+		for p := 1; p < 5; p++ {
+			b.Run(fmt.Sprintf("d:%d,p:%d", d, p), mkRSbench(d, p, 1e7, 1e8, nil))
 		}
 	}
 }
