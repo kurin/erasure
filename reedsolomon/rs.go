@@ -36,18 +36,27 @@ func (c *Code) Encode(p []byte) ([][]byte, error) {
 }
 
 func (c *Code) Decode(bs [][]byte) ([]byte, error) {
-	if err := c.enc.Reconstruct(bs); err != nil {
-		return nil, err
+	var redo bool
+	for i := range bs[:c.data] {
+		if bs[i] == nil {
+			redo = true
+			break
+		}
 	}
-	ok, err := c.enc.Verify(bs)
-	if err != nil {
-		return nil, err
-	}
-	if !ok {
-		return nil, errors.New("dataset doesn't verify")
+	if redo {
+		if err := c.enc.Reconstruct(bs); err != nil {
+			return nil, err
+		}
+		ok, err := c.enc.Verify(bs)
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			return nil, errors.New("dataset doesn't verify")
+		}
 	}
 	var b []byte
-	for i := 0; i < c.data; i++ {
+	for i := range bs[:c.data] {
 		b = append(b, bs[i]...)
 	}
 	return b, nil
